@@ -72,12 +72,24 @@ app.get('/', (req, res) => {
     <head>
       <title>WebSocket Demo</title>
       <style>
+        body {
+          font-family: Arial, sans-serif;
+          background-color: #f4f4f9;
+          color: #333;
+          margin: 0;
+          padding: 20px;
+        }
+        h1 {
+          color: #444;
+        }
         #messages {
           height: 300px;
           overflow-y: auto;
           border: 1px solid #ccc;
           padding: 10px;
           margin-bottom: 10px;
+          background-color: #fff;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         #userList {
           height: 200px;
@@ -85,11 +97,14 @@ app.get('/', (req, res) => {
           border: 1px solid #ccc;
           padding: 10px;
           margin-bottom: 10px;
+          background-color: #fff;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         .message {
           margin: 5px 0;
-          padding: 5px;
+          padding: 10px;
           border-radius: 5px;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
         .received { background-color: #e3f2fd; }
         .sent { background-color: #e8f5e9; }
@@ -97,15 +112,78 @@ app.get('/', (req, res) => {
         .private { background-color: #f3e5f5; }
         .user-item {
           cursor: pointer;
-          padding: 5px;
-          margin: 2px 0;
+          padding: 10px;
+          margin: 5px 0;
           border-radius: 3px;
+          background-color: #f9f9f9;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
         }
         .user-item:hover {
-          background-color: #f5f5f5;
+          background-color: #f1f1f1;
         }
         .selected-user {
           background-color: #e0e0e0;
+        }
+        input[type="text"] {
+          padding: 10px;
+          border: 1px solid #ccc;
+          border-radius: 3px;
+          box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        button {
+          padding: 10px 20px;
+          border: none;
+          border-radius: 3px;
+          background-color: #007bff;
+          color: #fff;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        button:hover {
+          background-color: #0056b3;
+        }
+        @media (max-width: 768px) {
+          body {
+            padding: 10px;
+          }
+          #messages, #userList {
+            height: 200px;
+          }
+          .user-item {
+            padding: 5px;
+          }
+          input[type="text"] {
+            padding: 5px;
+          }
+          button {
+            padding: 5px 10px;
+          }
+          .message {
+            padding: 5px;
+          }
+        }
+        @media (max-width: 480px) {
+          body {
+            padding: 5px;
+          }
+          #messages, #userList {
+            height: 150px;
+          }
+          .user-item {
+            padding: 3px;
+          }
+          input[type="text"] {
+            padding: 3px;
+          }
+          button {
+            padding: 3px 5px;
+          }
+          .message {
+            padding: 3px;
+          }
+          h1 {
+            font-size: 1.5em;
+          }
         }
       </style>
     </head>
