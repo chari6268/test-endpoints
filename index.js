@@ -127,7 +127,8 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
-        const ws = new WebSocket('ws://' + window.location.host);
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(wsProtocol + '//' + window.location.host);
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
         const userListDiv = document.getElementById('userList');
