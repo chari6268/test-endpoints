@@ -40,6 +40,9 @@ try {
   fs.writeJSONSync(CLIENTS_FILE, {});
 }
 
+// Store active WebSocket connections
+const activeConnections = new Map();
+
 // Save data to files
 const saveData = () => {
   try {
@@ -70,7 +73,14 @@ app.get('/', (req, res) => {
       <title>WebSocket Demo</title>
       <style>
         #messages {
-          height: 400px;
+          height: 300px;
+          overflow-y: auto;
+          border: 1px solid #ccc;
+          padding: 10px;
+          margin-bottom: 10px;
+        }
+        #userList {
+          height: 200px;
           overflow-y: auto;
           border: 1px solid #ccc;
           padding: 10px;
@@ -84,18 +94,45 @@ app.get('/', (req, res) => {
         .received { background-color: #e3f2fd; }
         .sent { background-color: #e8f5e9; }
         .system { background-color: #fff3e0; font-style: italic; }
+        .private { background-color: #f3e5f5; }
+        .user-item {
+          cursor: pointer;
+          padding: 5px;
+          margin: 2px 0;
+          border-radius: 3px;
+        }
+        .user-item:hover {
+          background-color: #f5f5f5;
+        }
+        .selected-user {
+          background-color: #e0e0e0;
+        }
       </style>
     </head>
     <body>
-      <h1>WebSocket Demo with Message History</h1>
-      <div id="messages"></div>
-      <input type="text" id="messageInput" placeholder="Type a message...">
-      <button onclick="sendMessage()">Send</button>
+      <h1>WebSocket Demo with Private Messaging</h1>
+      <div style="display: flex; gap: 20px;">
+        <div style="flex: 1;">
+          <h3>Messages</h3>
+          <div id="messages"></div>
+          <div style="display: flex; gap: 10px;">
+            <input type="text" id="messageInput" placeholder="Type a message..." style="flex: 1;">
+            <button onclick="sendMessage()">Send</button>
+          </div>
+        </div>
+        <div style="width: 200px;">
+          <h3>Online Users</h3>
+          <div id="userList"></div>
+        </div>
+      </div>
 
       <script>
         const ws = new WebSocket('ws://' + window.location.host);
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
+        const userListDiv = document.getElementById('userList');
+        let selectedUser = null;
+        let myUserId = null;
 
         ws.onopen = () => {
           console.log('Connected to WebSocket');
@@ -105,13 +142,23 @@ app.get('/', (req, res) => {
         ws.onmessage = (event) => {
           const data = JSON.parse(event.data);
           
+          if (data.type === 'userId') {
+            myUserId = data.userId;
+            return;
+          }
+
+          if (data.type === 'userList') {
+            updateUserList(data.users);
+            return;
+          }
+          
           if (Array.isArray(data)) {
             // Handle message history
             data.forEach(msg => {
-              appendMessage(msg.content, msg.type, msg.timestamp);
+              appendMessage(msg.content, msg.type, msg.timestamp, msg.fromUserId, msg.toUserId);
             });
           } else {
-            appendMessage(data.content, data.type, data.timestamp);
+            appendMessage(data.content, data.type, data.timestamp, data.fromUserId, data.toUserId);
           }
         };
 
@@ -119,10 +166,43 @@ app.get('/', (req, res) => {
           appendMessage('Disconnected from server', 'system');
         };
 
-        function appendMessage(message, type, timestamp = new Date().toLocaleTimeString()) {
+        function updateUserList(users) {
+          userListDiv.innerHTML = '';
+          users.forEach(user => {
+            if (user.id !== myUserId) {
+              const div = document.createElement('div');
+              div.className = 'user-item' + (user.id === selectedUser ? ' selected-user' : '');
+              div.textContent = \`User \${user.id.slice(0, 8)}...\`;
+              div.onclick = () => selectUser(user.id);
+              userListDiv.appendChild(div);
+            }
+          });
+        }
+
+        function selectUser(userId) {
+          selectedUser = selectedUser === userId ? null : userId;
+          updateUserList(Array.from(userListDiv.children).map(child => ({
+            id: child.textContent.slice(5, -3)
+          })));
+          messageInput.placeholder = selectedUser ? 
+            \`Send private message to User \${selectedUser.slice(0, 8)}...\` : 
+            "Send message to everyone";
+        }
+
+        function appendMessage(message, type, timestamp = new Date().toLocaleTimeString(), fromUserId, toUserId) {
           const div = document.createElement('div');
           div.className = 'message ' + type;
-          div.textContent = \`[\${timestamp}] \${message}\`;
+          let prefix = '';
+          
+          if (type === 'private') {
+            if (fromUserId === myUserId) {
+              prefix = \`To User \${toUserId.slice(0, 8)}...: \`;
+            } else {
+              prefix = \`From User \${fromUserId.slice(0, 8)}...: \`;
+            }
+          }
+          
+          div.textContent = \`[\${timestamp}] \${prefix}\${message}\`;
           messagesDiv.appendChild(div);
           messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
@@ -130,7 +210,11 @@ app.get('/', (req, res) => {
         function sendMessage() {
           const message = messageInput.value;
           if (message) {
-            ws.send(message);
+            const messageData = {
+              content: message,
+              toUserId: selectedUser
+            };
+            ws.send(JSON.stringify(messageData));
             messageInput.value = '';
           }
         }
@@ -161,9 +245,16 @@ wss.on('connection', (ws, req) => {
   };
   
   clientsData.set(userId, clientInfo);
+  activeConnections.set(userId, ws);
   saveData();
 
   console.log('New client connected:', userId);
+
+  // Send user their ID
+  ws.send(JSON.stringify({
+    type: 'userId',
+    userId: userId
+  }));
 
   // Send message history to new client
   ws.send(JSON.stringify(messageHistory));
@@ -179,15 +270,42 @@ wss.on('connection', (ws, req) => {
   messageHistory.push(welcomeMessage);
   saveData();
 
+  // Broadcast updated user list
+  const broadcastUserList = () => {
+    const userList = Array.from(clientsData.values())
+      .filter(client => activeConnections.has(client.id));
+    
+    const userListMessage = {
+      type: 'userList',
+      users: userList
+    };
+
+    wss.clients.forEach(client => {
+      if (client.readyState === ws.OPEN) {
+        client.send(JSON.stringify(userListMessage));
+      }
+    });
+  };
+
+  broadcastUserList();
+
   // Handle incoming messages
   ws.on('message', (message) => {
-    console.log('Received from', userId + ':', message.toString());
+    let messageData;
+    try {
+      messageData = JSON.parse(message);
+    } catch (e) {
+      messageData = { content: message.toString() };
+    }
+
+    console.log('Received from', userId + ':', messageData.content);
     
     const messageObject = {
-      type: 'received',
-      content: message.toString(),
+      type: messageData.toUserId ? 'private' : 'received',
+      content: messageData.content,
       timestamp: new Date().toLocaleTimeString(),
-      userId: userId
+      fromUserId: userId,
+      toUserId: messageData.toUserId
     };
 
     // Store in message history
@@ -204,21 +322,34 @@ wss.on('connection', (ws, req) => {
     });
     saveData();
 
-    // Broadcast to all clients except sender
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        client.send(JSON.stringify({
-          ...messageObject,
-          type: client === ws ? 'sent' : 'received'
-        }));
+    if (messageData.toUserId) {
+      // Private message
+      const targetWs = activeConnections.get(messageData.toUserId);
+      if (targetWs && targetWs.readyState === ws.OPEN) {
+        targetWs.send(JSON.stringify(messageObject));
       }
-    });
+      // Send confirmation to sender
+      ws.send(JSON.stringify({
+        ...messageObject,
+        type: 'private'
+      }));
+    } else {
+      // Broadcast to all clients except sender
+      wss.clients.forEach((client) => {
+        if (client !== ws && client.readyState === ws.OPEN) {
+          client.send(JSON.stringify({
+            ...messageObject,
+            type: client === ws ? 'sent' : 'received'
+          }));
+        }
+      });
 
-    // Send confirmation to sender
-    ws.send(JSON.stringify({
-      ...messageObject,
-      type: 'sent'
-    }));
+      // Send confirmation to sender
+      ws.send(JSON.stringify({
+        ...messageObject,
+        type: 'sent'
+      }));
+    }
   });
 
   // Handle client disconnection
@@ -230,6 +361,7 @@ wss.on('connection', (ws, req) => {
       ...clientsData.get(userId),
       lastSeen: new Date().toISOString()
     });
+    activeConnections.delete(userId);
     saveData();
 
     // Broadcast disconnection message
@@ -247,6 +379,9 @@ wss.on('connection', (ws, req) => {
         client.send(JSON.stringify(disconnectMessage));
       }
     });
+
+    // Broadcast updated user list
+    broadcastUserList();
   });
 });
 
